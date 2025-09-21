@@ -51,7 +51,7 @@ A cross-platform desktop tool for **batch-translating all localisable text insid
 
 ```
 MCDatapackTranslator/
-├─ MCDatapackTranslator.py   # main script
+├─ main.py   # main script
 ├─ Style.py                   # QSS themes
 ├─ langs/                     # UI translations
 │  ├─ zh_CN.json
@@ -67,7 +67,7 @@ MCDatapackTranslator/
 ```bash
 # 1. Clone
 git clone https://github.com/BiliBiliACEGE/Minecraft-DataPack-Translation-Tool.git
-cd yourrepo
+cd Minecraft-DataPack-Translation-Tool
 
 # 2. Create venv (optional but recommended)
 python -m venv venv
