@@ -151,17 +151,17 @@ def extract_json_entries(z: zipfile.ZipFile, name: str, wanted: set) -> List[Ent
             for k, v in node.items():
                 if k in wanted:
                     if isinstance(v, str):
-                        entries.append(Entry(name, v, path + f".{k}"))
+                        entries.append(Entry(name, v, f"{path}.{k}" if path else k))  # 保留完整路径
                     elif isinstance(v, list) and all(isinstance(i, str) for i in v):
                         for idx, s in enumerate(v):
-                            entries.append(Entry(name, s, path + f".{k}[{idx}]"))
+                            entries.append(Entry(name, s, f"{path}.{k}[{idx}]" if path else f"{k}[{idx}]"))
                     else:
-                        walk(v, path + f".{k}")
+                        walk(v, f"{path}.{k}" if path else k)
                 else:
-                    walk(v, path + f".{k}")
+                    walk(v, f"{path}.{k}" if path else k)
         elif isinstance(node, list):
             for idx, item in enumerate(node):
-                walk(item, f"{path}[{idx}]")
+                walk(item, f"{path}[{idx}]" if path else f"[{idx}]")
     try:
         data = json.loads(z.read(name).decode("utf-8"))
         walk(data)
@@ -170,23 +170,7 @@ def extract_json_entries(z: zipfile.ZipFile, name: str, wanted: set) -> List[Ent
     return entries
 
 # ---------- mcfunction 抽取 ----------
-RE_CMD = re.compile(r"^(#\s*)?([a-zA-Z0-9_]+)(.*)$", re.S)
-
-def extract_outer_json(s: str) -> str:
-    start = -1; stack = 0; in_str = False; escape = False
-    for i, ch in enumerate(s):
-        if not escape:
-            if ch == '"' and not in_str: in_str = True
-            elif ch == '"' and in_str: in_str = False
-            if in_str: continue
-            if ch in "{[":
-                if start == -1: start = i
-                stack += 1
-            elif ch in "}]":
-                stack -= 1
-                if stack == 0: return s[start:i+1]
-        escape = (ch == "\\")
-    return ""
+RE_CMD = re.compile(r"^((execute )?)(tellraw|title|bossbar|team|scoreboard|item)\b(.*)", re.IGNORECASE)
 
 def parse_mcfunction(z: zipfile.ZipFile, name: str, wanted: set) -> List[Entry]:
     entries = []
@@ -198,48 +182,66 @@ def parse_mcfunction(z: zipfile.ZipFile, name: str, wanted: set) -> List[Entry]:
         if not line or line.startswith("#"): continue
         m = RE_CMD.match(line)
         if not m: continue
-        base = m.group(2)
+        base = m.group(3)
         if base not in wanted: continue
-        args = m.group(3).strip()
+        args = m.group(4).strip()
         json_str = extract_outer_json(args)
         if not json_str: continue
         try:
             obj = json.loads(json_str)
         except: continue
 
-        # 通用 walk，支持 run 子命令链
         def walk(node, p=""):
             if isinstance(node, dict):
                 for k, v in node.items():
-                    # 1. execute 子命令递归
                     if k == "run" and isinstance(v, dict):
                         walk(v, f"{p}.run" if p else "run")
                         continue
-                    # 2. 文本字段捕获
-                    if k == "text" and isinstance(v, str):
-                        entries.append(Entry(name, v, f"line{lineno}{p}.{k}", base))
-                    elif k == "title" and isinstance(v, str):
-                        entries.append(Entry(name, v, f"line{lineno}{p}.{k}", base))
-                    elif k == "subtitle" and isinstance(v, str):
-                        entries.append(Entry(name, v, f"line{lineno}{p}.{k}", base))
-                    elif k == "actionbar" and isinstance(v, str):
-                        entries.append(Entry(name, v, f"line{lineno}{p}.{k}", base))
-                    elif k == "Name" and isinstance(v, str):
+                    if k in ("text", "title", "subtitle", "actionbar", "Name") and isinstance(v, str):
                         entries.append(Entry(name, v, f"line{lineno}{p}.{k}", base))
                     elif k == "Lore" and isinstance(v, list):
                         for idx, lore in enumerate(v):
                             if isinstance(lore, str):
                                 entries.append(Entry(name, lore, f"line{lineno}{p}.{k}[{idx}]", base))
-                    elif isinstance(v, dict):
+                    elif isinstance(v, (dict, list)):
                         walk(v, f"{p}.{k}" if p else k)
-                    elif isinstance(v, list):
-                        for idx, item in enumerate(v):
-                            walk(item, f"{p}.{k}[{idx}]" if p else f"{k}[{idx}]")
             elif isinstance(node, list):
                 for idx, item in enumerate(node):
                     walk(item, f"{p}[{idx}]" if p else f"[{idx}]")
         walk(obj)
     return entries
+
+# ---------- 提取外层 JSON ----------
+def extract_outer_json(s: str) -> str:
+    """
+    从字符串中提取第一个完整的 JSON 对象（支持嵌套），返回其字符串表示。
+    """
+    start = s.find("{")
+    if start == -1:
+        return ""
+    stack = []
+    for i in range(start, len(s)):
+        if s[i] == "{":
+            stack.append("{")
+        elif s[i] == "}":
+            if stack:
+                stack.pop()
+                if not stack:
+                    return s[start:i+1]
+    return ""
+
+# ---------- 表格填充 ----------
+def populate_table(self):
+    self.table.setRowCount(len(self.entries))
+    self.table.verticalHeader().setVisible(False)
+    for i, e in enumerate(self.entries):
+        self.table.setItem(i, 0, QTableWidgetItem(e.file))
+        self.table.setItem(i, 1, QTableWidgetItem(e.path))  # 使用更详细的路径
+        self.table.setItem(i, 2, QTableWidgetItem(e.text))
+        self.table.setItem(i, 3, QTableWidgetItem(""))
+        self.table.item(i, 2).setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.table.item(i, 0).setFlags(Qt.ItemFlag.ItemIsEnabled)
+        self.table.item(i, 1).setFlags(Qt.ItemFlag.ItemIsEnabled)
 
 # ---------- 回写 ----------
 def build_translated_zip(zin: zipfile.ZipFile, entries: List[Entry], out: str):
@@ -623,7 +625,7 @@ class MainWindow(QMainWindow):
         if path in self.recent_files:
             self.recent_files.remove(path)
         self.recent_files.insert(0, path)
-        self.recent_files = self.recent_files[:RECENT_MAX]
+        self.recent_files = self.recent_files[:self.RECENT_MAX]
         self.settings.setValue("recent", self.recent_files)
         self.update_recent_menu()
 
