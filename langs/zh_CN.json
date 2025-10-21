@@ -28,7 +28,7 @@
   "S_Closed": "已关闭数据包",
   "recent_files": "最近打开",
   "empty": "无",
-  "file_no_longer_exists\\n{}": "文件已不存在\\n{}",
+  "file_no_longer_exists\n{}": "文件不存在\n{}",
   "save_ok": "已保存为\n{}",
   "about_text": "MC 数据包翻译器\n支持全版本 Java 版数据包\n作者：Ace"
 }
