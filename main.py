@@ -97,7 +97,7 @@ class Entry:
     def key(self):
         return (self.file, self.path)
 
-JSON_FIELDS = ["text", "title", "subtitle", "description", "name", "displayName"]
+JSON_FIELDS = ["title", "description", "displayName", "text", "subtitle", "name"]
 COMMAND_FIELDS = {
     "tellraw": ["text"],
     "title": ["title", "subtitle", "actionbar"],
@@ -170,6 +170,11 @@ def parse_mcfunction(z: zipfile.ZipFile, name: str, wanted: set) -> List[Entry]:
         try:
             obj = json.loads(json_str)
         except: continue
+
+        if isinstance(obj, str) and base in COMMAND_FIELDS:
+            field = COMMAND_FIELDS.get(base, base)
+            print("【DEBUG】字段映射 -> field=", field)
+            entries.append(Entry(name, obj, f"line{lineno}.{field}", base))
         def walk(node, p=""):
             if isinstance(node, dict):
                 for k, v in node.items():
@@ -193,6 +198,7 @@ def parse_mcfunction(z: zipfile.ZipFile, name: str, wanted: set) -> List[Entry]:
 # -------------------- 回写 --------------------
 def build_translated_zip(zin: zipfile.ZipFile, entries: List[Entry], out: str):
     mapping = {e.key(): e for e in entries if e.translated}
+    print("【DEBUG】待写入映射条数 =", len(mapping))
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zout:
         for info in zin.infolist():
             data = zin.read(info)
@@ -212,21 +218,25 @@ def apply_json_translation(obj, mapping, fname):
             for k, v in node.items():
                 if k in JSON_FIELDS:
                     if isinstance(v, str):
-                        ent = mapping.get((fname, path + f".{k}"))
-                        if ent: node[k] = ent.translated
+                        map_path = f"{path}.{k}" if path else k
+                        ent = mapping.get((fname, map_path))
+                        if ent:
+                            node[k] = ent.translated
                     elif isinstance(v, list) and all(isinstance(i, str) for i in v):
                         for idx, s in enumerate(v):
-                            ent = mapping.get((fname, path + f".{k}[{idx}]"))
-                            if ent: v[idx] = ent.translated
+                            map_path = f"{path}.{k}[{idx}]" if path else f"{k}[{idx}]"
+                            ent = mapping.get((fname, map_path))
+                            if ent:
+                                v[idx] = ent.translated
                     else:
-                        walk(v, path + f".{k}")
+                        walk(v, f"{path}.{k}" if path else k)
                 else:
-                    walk(v, path + f".{k}")
+                    walk(v, f"{path}.{k}" if path else k)
         elif isinstance(node, list):
             for idx, item in enumerate(node):
-                walk(item, f"{path}[{idx}]")
+                walk(item, f"{path}[{idx}]" if path else f"[{idx}]")
     walk(obj)
-
+    
 def apply_mcfunction_translation(content: str, mapping, fname):
     lines = content.splitlines()
     entries = [e for e in mapping.values() if e.file == fname and e.translated]
@@ -241,6 +251,8 @@ def apply_mcfunction_translation(content: str, mapping, fname):
         try:
             obj = json.loads(old_json)
         except: continue
+
+        # ---------- 通用字段回写 ----------
         def set_nested(node, path_parts, new_val):
             cur = node
             for part in path_parts[:-1]:
@@ -255,8 +267,10 @@ def apply_mcfunction_translation(content: str, mapping, fname):
                 cur[last] = new_val
             elif isinstance(cur, list) and last.isdigit() and isinstance(cur[int(last)], str):
                 cur[int(last)] = new_val
+
         path_suffix = e.path.split(".", 1)[1] if "." in e.path else ""
         path_parts = path_suffix.split(".")
+
         m_idx = re.search(r"\[(\d+)\]\.text", e.path)
         if m_idx:
             idx = int(m_idx.group(1))
@@ -265,11 +279,14 @@ def apply_mcfunction_translation(content: str, mapping, fname):
                 new_json = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
                 lines[lineno] = line.replace(old_json, new_json)
                 continue
+
         if path_parts and path_parts[-1] in ("text", "title", "subtitle", "actionbar"):
             set_nested(obj, path_parts, e.translated)
             new_json = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
             lines[lineno] = line.replace(old_json, new_json)
+
     return "\n".join(lines)
+
 
 class ParseWorker(QThread):
     parsed = pyqtSignal(list)
@@ -499,7 +516,7 @@ class MainWindow(QMainWindow):
         out = self.zpath.replace(".zip", "_translated.zip")
         with zipfile.ZipFile(self.zpath, "r") as zin:
             build_translated_zip(zin, self.entries, out)
-        MessageBox(self, "Done", tr("save_ok").format(out), self).exec()
+        MessageBox("Done", tr("save_ok").format(out), self).exec()
     def toggle_theme(self):
         self.dark = not self.dark
         setTheme(Theme.DARK if self.dark else Theme.LIGHT)
