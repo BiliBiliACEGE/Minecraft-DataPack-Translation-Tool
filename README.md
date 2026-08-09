@@ -64,6 +64,7 @@ Minecraft-DataPack-Translation-Tool/
 ├── icon.ico         # 应用图标
 ├── main.spec        # PyInstaller 打包配置
 ├── 打包.bat         # 一键打包脚本
+├── LICENSE          # MIT 开源协议
 └── README.md        # 项目文档
 ```
 
@@ -88,7 +89,7 @@ pyinstaller main.py --noconsole --icon=icon.ico --add-data "langs;langs"
 
 ## 许可证
 
-本项目暂未声明开源许可证，默认所有权利保留。如需使用，请联系作者。
+本项目采用 [MIT 许可证](LICENSE) 开源 - 查看 [LICENSE](LICENSE) 文件了解详情。
 
 ## 贡献
 
